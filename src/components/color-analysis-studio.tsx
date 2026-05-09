@@ -480,6 +480,12 @@ async function exportElementAsJpg(elementId: string, fileName: string) {
       src: image.getAttribute("src"),
       srcset: image.getAttribute("srcset"),
     }));
+    const computedNodeStyle = window.getComputedStyle(node);
+    const previousNodeBackground = node.style.backgroundColor;
+    const exportBackground =
+      computedNodeStyle.backgroundColor && computedNodeStyle.backgroundColor !== "rgba(0, 0, 0, 0)"
+        ? computedNodeStyle.backgroundColor
+        : "#ece3d8";
     let dataUrl = "";
 
     try {
@@ -496,14 +502,16 @@ async function exportElementAsJpg(elementId: string, fileName: string) {
       ignored.forEach((element) => {
         element.style.display = "none";
       });
+      node.style.backgroundColor = exportBackground;
 
       dataUrl = await toJpeg(node, {
         quality: 0.94,
         pixelRatio: elementId === "color-analysis-export" ? 1.25 : 2,
-        backgroundColor: "#ece3d8",
+        backgroundColor: exportBackground,
         cacheBust: true,
       });
     } finally {
+      node.style.backgroundColor = previousNodeBackground;
       ignored.forEach((element, index) => {
         element.style.display = previousDisplay[index] ?? "";
       });
