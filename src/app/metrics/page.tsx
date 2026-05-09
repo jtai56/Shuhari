@@ -14,12 +14,14 @@ const metricLabels: Record<string, string> = {
   guide_generated: "Guides generated",
   unlock_clicked: "Unlock clicks",
   guide_unlocked: "Guides unlocked",
+  survey_submitted: "Survey responses",
 };
 const defaultTotals: Array<[string, number]> = [
   ["page_view", 0],
   ["guide_generated", 0],
   ["unlock_clicked", 0],
   ["guide_unlocked", 0],
+  ["survey_submitted", 0],
 ];
 const defaultToday: Array<[string, number]> = [["No events yet", 0]];
 
@@ -51,7 +53,7 @@ export default async function MetricsPage() {
         </Link>
       </div>
 
-      <section className="mt-10 grid gap-4 md:grid-cols-4">
+      <section className="mt-10 grid gap-4 md:grid-cols-5">
         {(totals.length ? totals : defaultTotals).map(([key, value]) => (
           <div
             key={key}

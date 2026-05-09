@@ -7,6 +7,7 @@ export const ROUTE_RATE_LIMITS = {
   checkout: { max: 25, window: "1 m" as const, windowMs: 60_000 },
   "checkout-verify": { max: 45, window: "1 m" as const, windowMs: 60_000 },
   leads: { max: 40, window: "1 h" as const, windowMs: 3_600_000 },
+  survey: { max: 20, window: "1 h" as const, windowMs: 3_600_000 },
 } as const;
 
 export type RateLimitRoute = keyof typeof ROUTE_RATE_LIMITS;

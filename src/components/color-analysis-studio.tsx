@@ -687,6 +687,22 @@ const landingHighlights = [
 const isDevelopment = process.env.NODE_ENV !== "production";
 const isPaywallBypassEnabled =
   isDevelopment || process.env.NEXT_PUBLIC_DEMO_BYPASS_PAYWALL === "true";
+type AnalyticsEventParams = Record<string, string | number | boolean | undefined>;
+
+function trackAnalyticsEvent(
+  eventName: string,
+  params: AnalyticsEventParams = {},
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const analyticsWindow = window as Window & {
+    gtag?: (command: "event", eventName: string, params?: AnalyticsEventParams) => void;
+  };
+
+  analyticsWindow.gtag?.("event", eventName, params);
+}
 
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
@@ -939,6 +955,9 @@ export function ColorAnalysisStudio() {
   const [error, setError] = useState<string | null>(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [surveyWouldPay, setSurveyWouldPay] = useState("yes");
+  const [surveyPrice, setSurveyPrice] = useState("");
+  const [surveyStatus, setSurveyStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const heroPhoto = photos[0]?.dataUrl ?? photos[0]?.preview;
   const canSubmit = photos.length > 0;
@@ -1012,6 +1031,12 @@ export function ColorAnalysisStudio() {
           }
           setIsUnlocked(true);
           setStage("slides");
+          trackAnalyticsEvent("guide_unlocked", {
+            season: savedParsed?.season ?? "",
+            source: "stripe_checkout",
+            value: 5,
+            currency: "USD",
+          });
         } catch {
           window.localStorage.removeItem(STORAGE_UNLOCKED_KEY);
           setIsUnlocked(false);
@@ -1086,6 +1111,10 @@ export function ColorAnalysisStudio() {
 
     setPhotos(nextPhotos);
     setError(null);
+    trackAnalyticsEvent("photos_uploaded", {
+      photo_count: nextPhotos.length,
+      source: "analysis_form",
+    });
   }
 
   async function handleSubmit() {
@@ -1138,6 +1167,11 @@ export function ColorAnalysisStudio() {
           source: "analysis_form",
         }),
       });
+      trackAnalyticsEvent("guide_generated", {
+        season: data.season,
+        source: "analysis_form",
+        paywall_bypass: isPaywallBypassEnabled,
+      });
       if (isPaywallBypassEnabled) {
         void fetch("/api/leads", {
           method: "POST",
@@ -1148,6 +1182,11 @@ export function ColorAnalysisStudio() {
             season: data.season,
             source: "demo_bypass",
           }),
+        });
+        trackAnalyticsEvent("guide_unlocked", {
+          season: data.season,
+          source: "demo_bypass",
+          paywall_bypass: true,
         });
       }
       setStage("slides");
@@ -1182,6 +1221,12 @@ export function ColorAnalysisStudio() {
           season: activePreset.season,
           source: "stripe_cta",
         }),
+      });
+      trackAnalyticsEvent("unlock_clicked", {
+        season: activePreset.season,
+        source: "stripe_cta",
+        value: 5,
+        currency: "USD",
       });
 
       const response = await fetch("/api/checkout", {
@@ -1236,6 +1281,40 @@ export function ColorAnalysisStudio() {
         source: "demo_bypass_button",
       }),
     });
+    trackAnalyticsEvent("guide_unlocked", {
+      season: activePreset?.season ?? result?.season ?? "",
+      source: "demo_bypass_button",
+      paywall_bypass: true,
+    });
+  }
+
+  async function handleSurveySubmit() {
+    setSurveyStatus("saving");
+
+    try {
+      const response = await fetch("/api/survey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wouldPay: surveyWouldPay,
+          price: surveyPrice,
+          source: "landing_survey",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Survey could not be saved.");
+      }
+
+      setSurveyStatus("saved");
+      trackAnalyticsEvent("survey_submitted", {
+        would_pay: surveyWouldPay,
+        price: surveyPrice,
+        source: "landing_survey",
+      });
+    } catch {
+      setSurveyStatus("error");
+    }
   }
 
   if (stage === "loading") {
@@ -1759,6 +1838,73 @@ export function ColorAnalysisStudio() {
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="mx-auto mt-12 w-full max-w-3xl rounded-[2rem] border border-[var(--line)] bg-white/65 p-6 sm:p-8">
+        <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">
+          Please help me get feedback!!
+        </p>
+        <form
+          className="mt-6 grid gap-4 sm:grid-cols-[1fr_1fr_auto]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSurveySubmit();
+          }}
+        >
+          <label className="block space-y-2">
+            <span className="text-sm text-[var(--muted)]">
+              would you pay for this service?
+            </span>
+            <select
+              value={surveyWouldPay}
+              onChange={(event) => {
+                setSurveyWouldPay(event.target.value);
+                setSurveyStatus("idle");
+              }}
+              className="w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
+            >
+              <option value="yes">Yes</option>
+              <option value="maybe">Maybe</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-sm text-[var(--muted)]">How much would you pay?</span>
+            <input
+              value={surveyPrice}
+              onChange={(event) => {
+                setSurveyPrice(event.target.value);
+                setSurveyStatus("idle");
+              }}
+              className="w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
+              placeholder="$5, $10, $20..."
+              required
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={surveyStatus === "saving" || surveyStatus === "saved"}
+            className="self-end rounded-full bg-[var(--ink)] px-6 py-3 text-sm uppercase tracking-[0.18em] text-[var(--paper)] transition hover:bg-[#57473c] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {surveyStatus === "saving"
+              ? "Saving..."
+              : surveyStatus === "saved"
+                ? "Saved"
+                : "Submit"}
+          </button>
+        </form>
+        {surveyStatus === "saved" ? (
+          <p className="mt-4 text-sm text-[var(--muted)]">
+            Thank you. This helps me validate the business.
+          </p>
+        ) : null}
+        {surveyStatus === "error" ? (
+          <p className="mt-4 text-sm text-[#7a5648]">
+            Could not save feedback. Please try again.
+          </p>
+        ) : null}
       </section>
     </main>
   );

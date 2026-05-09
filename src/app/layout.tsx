@@ -17,6 +17,7 @@ const notoSerifKr = Noto_Serif_KR({
   display: "swap",
 });
 const tiktokPixelId = process.env.NEXT_PUBLIC_TIKTOK_PIXEL_ID ?? "D7VLVHJC77U02PKA26FG";
+const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
 
 export const metadata: Metadata = {
   title: "Shuhari | Wardrobe Color Guide",
@@ -50,6 +51,24 @@ var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n
 `,
           }}
         />
+        {googleAnalyticsId ? (
+          <>
+            <script
+              async
+              src={`https://www.googletagmanager.com/gtag/js?id=${googleAnalyticsId}`}
+            />
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${googleAnalyticsId}');
+`,
+              }}
+            />
+          </>
+        ) : null}
       </head>
       <body className="min-h-full flex flex-col">
         <div className="flex-1">{children}</div>
