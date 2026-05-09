@@ -838,47 +838,12 @@ function LockedPreview({
 
 export function ColorAnalysisStudio() {
   const [profile, setProfile] = useState<UploadedProfile>(initialProfile);
-  const [email, setEmail] = useState(() => {
-    if (typeof window === "undefined") {
-      return "";
-    }
-
-    return window.localStorage.getItem(STORAGE_EMAIL_KEY) ?? "";
-  });
+  const [email, setEmail] = useState("");
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
-  const [result, setResult] = useState<AnalysisResult | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    const savedResult = window.localStorage.getItem(STORAGE_RESULT_KEY);
-
-    if (!savedResult) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(savedResult) as AnalysisResult;
-    } catch {
-      window.localStorage.removeItem(STORAGE_RESULT_KEY);
-      return null;
-    }
-  });
-  const [stage, setStage] = useState<AppStage>(() => {
-    if (typeof window === "undefined") {
-      return "landing";
-    }
-
-    return window.localStorage.getItem(STORAGE_RESULT_KEY) ? "summary" : "landing";
-  });
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [stage, setStage] = useState<AppStage>("landing");
   const [error, setError] = useState<string | null>(null);
-  const [isUnlocked, setIsUnlocked] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return isDevelopment || window.localStorage.getItem(STORAGE_UNLOCKED_KEY) === "true";
-  });
+  const [isUnlocked, setIsUnlocked] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   const heroPhoto = photos[0]?.preview;
@@ -906,10 +871,24 @@ export function ColorAnalysisStudio() {
   }, [activePreset, result]);
 
   useEffect(() => {
-    const savedResult = window.localStorage.getItem(STORAGE_RESULT_KEY);
+    const savedResultRaw = window.localStorage.getItem(STORAGE_RESULT_KEY);
     const params = new URLSearchParams(window.location.search);
     const checkoutStatus = params.get("checkout");
     const sessionId = params.get("session_id");
+
+    let savedParsed: AnalysisResult | null = null;
+    if (savedResultRaw) {
+      try {
+        savedParsed = JSON.parse(savedResultRaw) as AnalysisResult;
+      } catch {
+        window.localStorage.removeItem(STORAGE_RESULT_KEY);
+      }
+    }
+
+    const savedEmail = window.localStorage.getItem(STORAGE_EMAIL_KEY);
+    if (savedEmail) {
+      setEmail(savedEmail);
+    }
 
     if (checkoutStatus === "success") {
       void (async () => {
@@ -930,12 +909,20 @@ export function ColorAnalysisStudio() {
 
           await verifyResponse.json();
           window.localStorage.setItem(STORAGE_UNLOCKED_KEY, "true");
+          if (savedParsed) {
+            setResult(savedParsed);
+          }
           setIsUnlocked(true);
           setStage("slides");
         } catch {
           window.localStorage.removeItem(STORAGE_UNLOCKED_KEY);
           setIsUnlocked(false);
-          setStage(savedResult ? "summary" : "landing");
+          if (savedParsed) {
+            setResult(savedParsed);
+            setStage("summary");
+          } else {
+            setStage("landing");
+          }
           setError("We could not verify that checkout completed. Please try again.");
         } finally {
           window.history.replaceState({}, "", "/");
@@ -946,10 +933,25 @@ export function ColorAnalysisStudio() {
 
     if (checkoutStatus === "cancelled") {
       queueMicrotask(() => {
-        setStage(savedResult ? "summary" : "landing");
+        if (savedParsed) {
+          setResult(savedParsed);
+          setStage("summary");
+        } else {
+          setStage("landing");
+        }
         setError("Checkout was cancelled. Your free preview is still saved.");
         window.history.replaceState({}, "", "/");
       });
+      return;
+    }
+
+    if (isDevelopment || window.localStorage.getItem(STORAGE_UNLOCKED_KEY) === "true") {
+      setIsUnlocked(true);
+    }
+
+    if (savedParsed) {
+      setResult(savedParsed);
+      setStage("summary");
     }
   }, []);
 
@@ -1657,23 +1659,18 @@ function FinalSummary({
           <p className="text-xs uppercase tracking-[0.36em] text-[var(--paper)]/60">
             Final palette
           </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                void exportElementAsJpg(
-                  "final-palette-card",
-                  `${preset.season.toLowerCase().replaceAll(" ", "-")}-final-card.jpg`,
-                )
-              }
-              className="export-ignore rounded-full border border-white/15 px-4 py-2 text-xs text-[var(--paper)]/70 transition hover:text-white"
-            >
-              Save card ↓
-            </button>
-            <p className="rounded-full border border-white/15 px-4 py-2 text-xs text-[var(--paper)]/70">
-              {result.confidence} confidence
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() =>
+              void exportElementAsJpg(
+                "final-palette-card",
+                `${preset.season.toLowerCase().replaceAll(" ", "-")}-final-card.jpg`,
+              )
+            }
+            className="export-ignore rounded-full border border-white/15 px-4 py-2 text-xs text-[var(--paper)]/70 transition hover:text-white"
+          >
+            Save card ↓
+          </button>
         </div>
 
         <h2 className="mt-8 max-w-3xl font-serif-kor text-5xl leading-none sm:text-7xl">
