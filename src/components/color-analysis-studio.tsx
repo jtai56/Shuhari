@@ -593,6 +593,20 @@ const initialProfile: UploadedProfile = {
 };
 
 const landingSwatches = ["#D3BEA3", "#B27D72", "#7B8575", "#8B796B", "#3D3027"];
+const landingHighlights = [
+  {
+    title: "Undertone read",
+    description: "Warm, cool, olive, or neutral signals without guessing by skin depth.",
+  },
+  {
+    title: "Face contrast",
+    description: "How light, dark, soft, or clear colors change your overall presence.",
+  },
+  {
+    title: "Wearable palette",
+    description: "A focused set of colors for clothes, makeup, hair, and jewelry.",
+  },
+];
 const isDevelopment = process.env.NODE_ENV !== "production";
 
 async function fileToDataUrl(file: File) {
@@ -1385,14 +1399,14 @@ export function ColorAnalysisStudio() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            {["Hue", "Value", "Chroma"].map((item) => (
+            {landingHighlights.map((item) => (
               <div
-                key={item}
+                key={item.title}
                 className="rounded-[1.35rem] border border-[var(--line)] bg-white/55 p-4"
               >
-                <p className="text-sm text-[var(--ink)]">{item}</p>
+                <p className="text-sm text-[var(--ink)]">{item.title}</p>
                 <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-                  Interpreted into simple color choices.
+                  {item.description}
                 </p>
               </div>
             ))}
@@ -1488,7 +1502,7 @@ export function ColorAnalysisStudio() {
                   }))
                 }
                 className="min-h-24 w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm leading-6 text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
-                placeholder="I want to look more effortless and polished."
+                placeholder="Style goal"
               />
             </label>
 
@@ -1581,7 +1595,7 @@ export function ColorAnalysisStudio() {
                   </div>
                 ) : null}
                 <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
-                  1 to 3 clear daylight photos work best.
+                  Upload 1 clearly lit photo of yourself
                 </p>
               </div>
             </label>
