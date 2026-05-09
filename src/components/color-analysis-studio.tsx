@@ -422,44 +422,103 @@ const ACCESSORIES: Record<string, string[]> = {
   "Muted Neutral": ["Mixed Metal", "Champagne Gold", "Greige Stone"],
 };
 
+async function blobToDataUrl(blob: Blob) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Unable to convert image."));
+    };
+    reader.onerror = () => reject(new Error("Unable to convert image."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function imageSrcToDataUrl(src: string) {
+  if (!src || src.startsWith("data:")) {
+    return src;
+  }
+
+  const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error("Unable to fetch image for export.");
+  }
+
+  return await blobToDataUrl(await response.blob());
+}
+
+async function waitForImage(image: HTMLImageElement) {
+  if (image.complete && image.naturalWidth > 0) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    image.addEventListener("load", () => resolve(), { once: true });
+    image.addEventListener("error", () => resolve(), { once: true });
+  });
+}
+
 async function exportElementAsJpg(elementId: string, fileName: string) {
   const node = document.getElementById(elementId);
   if (!node) return;
 
   try {
     await document.fonts.ready;
-    await Promise.all(
-      Array.from(node.querySelectorAll<HTMLImageElement>("img")).map(
-        (image) =>
-          image.complete
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                image.addEventListener("load", () => resolve(), { once: true });
-                image.addEventListener("error", () => resolve(), { once: true });
-              }),
-      ),
-    );
+    const images = Array.from(node.querySelectorAll<HTMLImageElement>("img"));
+    await Promise.all(images.map(waitForImage));
 
     const ignored = Array.from(
       node.querySelectorAll<HTMLElement>(".export-ignore"),
     );
     const previousDisplay = ignored.map((element) => element.style.display);
+    const previousImages = images.map((image) => ({
+      image,
+      src: image.getAttribute("src"),
+      srcset: image.getAttribute("srcset"),
+    }));
     let dataUrl = "";
 
     try {
+      await Promise.all(
+        images.map(async (image) => {
+          const normalizedSrc = await imageSrcToDataUrl(image.currentSrc || image.src);
+          if (normalizedSrc) {
+            image.removeAttribute("srcset");
+            image.src = normalizedSrc;
+          }
+        }),
+      );
+      await Promise.all(images.map(waitForImage));
       ignored.forEach((element) => {
         element.style.display = "none";
       });
 
       dataUrl = await toJpeg(node, {
         quality: 0.94,
-        pixelRatio: 2,
+        pixelRatio: elementId === "color-analysis-export" ? 1.25 : 2,
         backgroundColor: "#ece3d8",
         cacheBust: true,
       });
     } finally {
       ignored.forEach((element, index) => {
         element.style.display = previousDisplay[index] ?? "";
+      });
+      previousImages.forEach(({ image, src, srcset }) => {
+        if (src === null) {
+          image.removeAttribute("src");
+        } else {
+          image.setAttribute("src", src);
+        }
+
+        if (srcset === null) {
+          image.removeAttribute("srcset");
+        } else {
+          image.setAttribute("srcset", srcset);
+        }
       });
     }
 
