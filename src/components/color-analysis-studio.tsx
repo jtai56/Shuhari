@@ -685,6 +685,8 @@ const landingHighlights = [
   },
 ];
 const isDevelopment = process.env.NODE_ENV !== "production";
+const isPaywallBypassEnabled =
+  isDevelopment || process.env.NEXT_PUBLIC_DEMO_BYPASS_PAYWALL === "true";
 
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
@@ -915,13 +917,13 @@ function LockedPreview({
         >
           {loading ? "Opening checkout..." : "Unlock full guide $5"}
         </button>
-        {isDevelopment ? (
+        {isPaywallBypassEnabled ? (
           <button
             type="button"
             onClick={onDevUnlock}
             className="rounded-full border border-[var(--line-strong)] bg-white/75 px-7 py-3 text-sm uppercase tracking-[0.18em] text-[var(--ink)] transition hover:bg-white"
           >
-            Dev bypass
+            Demo bypass
           </button>
         ) : null}
       </div>
@@ -963,6 +965,15 @@ export function ColorAnalysisStudio() {
   }, [activePreset, result]);
 
   useEffect(() => {
+    void fetch("/api/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "page_view",
+        source: "landing",
+      }),
+    });
+
     const savedResultRaw = window.localStorage.getItem(STORAGE_RESULT_KEY);
     const params = new URLSearchParams(window.location.search);
     const checkoutStatus = params.get("checkout");
@@ -1033,7 +1044,8 @@ export function ColorAnalysisStudio() {
     }
 
     const hasSavedUnlock =
-      isDevelopment || window.localStorage.getItem(STORAGE_UNLOCKED_KEY) === "true";
+      isPaywallBypassEnabled ||
+      window.localStorage.getItem(STORAGE_UNLOCKED_KEY) === "true";
 
     if (hasSavedUnlock || savedParsed) {
       queueMicrotask(() => {
@@ -1115,7 +1127,7 @@ export function ColorAnalysisStudio() {
       setResult(data);
       window.localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(data));
       window.localStorage.removeItem(STORAGE_UNLOCKED_KEY);
-      setIsUnlocked(isDevelopment);
+      setIsUnlocked(isPaywallBypassEnabled);
       void fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1126,6 +1138,18 @@ export function ColorAnalysisStudio() {
           source: "analysis_form",
         }),
       });
+      if (isPaywallBypassEnabled) {
+        void fetch("/api/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event: "guide_unlocked",
+            name: profile.name,
+            season: data.season,
+            source: "demo_bypass",
+          }),
+        });
+      }
       setStage("slides");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (requestError) {
@@ -1197,11 +1221,21 @@ export function ColorAnalysisStudio() {
   }
 
   function handleDevUnlock() {
-    if (!isDevelopment) return;
+    if (!isPaywallBypassEnabled) return;
     window.localStorage.setItem(STORAGE_UNLOCKED_KEY, "true");
     setIsUnlocked(true);
     setStage("slides");
     setError(null);
+    void fetch("/api/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "guide_unlocked",
+        name: profile.name,
+        season: activePreset?.season ?? result?.season ?? "",
+        source: "demo_bypass_button",
+      }),
+    });
   }
 
   if (stage === "loading") {
@@ -1282,10 +1316,7 @@ export function ColorAnalysisStudio() {
                 ) : null}
               </div>
               <div>
-                <p className="font-serif-kor text-5xl text-[var(--ink)]">
-                  {activePreset.season}
-                </p>
-                <p className="mt-3 text-sm uppercase tracking-[0.26em] text-[var(--muted)]">
+                <p className="text-sm uppercase tracking-[0.26em] text-[var(--muted)]">
                   {activePreset.mood}
                 </p>
                 <p className="mt-5 max-w-2xl text-lg leading-9 text-[var(--muted)]">
@@ -1709,7 +1740,7 @@ export function ColorAnalysisStudio() {
                   </div>
                 ) : null}
                 <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
-                  Upload 1 clearly lit photo of yourself
+                  Upload well lit photos
                 </p>
               </div>
             </label>

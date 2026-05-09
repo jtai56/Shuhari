@@ -6,6 +6,8 @@ import { rateLimitResponse } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 
 const ENTITLEMENT_COOKIE = "shuhari_entitlement";
+const isDemoBypassEnabled =
+  process.env.NEXT_PUBLIC_DEMO_BYPASS_PAYWALL === "true";
 
 function getCookie(request: Request, name: string) {
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -36,7 +38,7 @@ function verifySignedSession(token: string | null, secret: string) {
 }
 
 async function verifyPaidSession(request: Request) {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" || isDemoBypassEnabled) {
     return true;
   }
 

@@ -1,5 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises";
-import path from "node:path";
+import { recordMetric } from "@/lib/metrics";
 import { rateLimitResponse } from "@/lib/rate-limit";
 
 type LeadPayload = {
@@ -27,13 +26,7 @@ export async function POST(request: Request) {
   };
 
   try {
-    const dataDirectory = path.join(process.cwd(), "data");
-    await mkdir(dataDirectory, { recursive: true });
-    await appendFile(
-      path.join(dataDirectory, "leads.jsonl"),
-      `${JSON.stringify(lead)}\n`,
-      "utf8",
-    );
+    await recordMetric(lead);
   } catch {
     console.info("Lead captured", lead);
   }
