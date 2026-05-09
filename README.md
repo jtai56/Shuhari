@@ -36,15 +36,38 @@ Copy the printed `STRIPE_PRICE_ID` into `.env`. The checkout route also includes
 `managed_payments[enabled]=true` and sends the required `Stripe-Version:
 2026-02-25.preview` request header.
 
-For local webhook testing, forward Stripe events to
-`/api/webhooks/stripe`, then add the signing secret to `.env`:
+### Stripe webhook (production)
+
+1. In [Stripe Dashboard → Developers → Webhooks](https://dashboard.stripe.com/webhooks), choose **Add endpoint**.
+2. Set **Endpoint URL** to `https://<your-domain>/api/webhooks/stripe` (same path as in this repo: `src/app/api/webhooks/stripe/route.ts`).
+3. Under **Events**, subscribe to **`checkout.session.completed`** (that is what the handler processes).
+4. After saving, open the endpoint and reveal **Signing secret**. Set it in production (e.g. Vercel) as **`STRIPE_WEBHOOK_SECRET`**.
+
+### Stripe webhook (local)
+
+Use the [Stripe CLI](https://stripe.com/docs/stripe-cli) to forward events:
 
 ```bash
-STRIPE_WEBHOOK_SECRET=<your Stripe webhook signing secret>
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+```
+
+Copy the **`whsec_...`** signing secret the CLI prints and put it in `.env`:
+
+```bash
+STRIPE_WEBHOOK_SECRET=<webhook signing secret from CLI or Dashboard>
 ```
 
 The webhook listens for `checkout.session.completed` and records completed
 sessions in `data/stripe-checkout-events.jsonl`.
+
+## API rate limiting
+
+Public `POST` routes (`/api/analyze`, `/api/try-on`, `/api/checkout`, `/api/checkout/verify`, `/api/leads`) are rate-limited per client IP using a sliding window.
+
+- **Production:** create a free [Upstash Redis](https://upstash.com/) database and set **`UPSTASH_REDIS_REST_URL`** and **`UPSTASH_REDIS_REST_TOKEN`** in your deployment env. Limits are then coordinated across all serverless instances.
+- **Without Upstash:** the app falls back to an in-memory counter (suitable for local dev only; not reliable if you scale to many instances).
+
+The Stripe webhook route is **not** rate-limited; Stripe verifies requests with the signing secret and retries on failure.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

@@ -40,6 +40,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# test images
+/public/IMG_1024.png
+/public/IMG_9038.png
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

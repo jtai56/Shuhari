@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 type LeadPayload = {
   event?: string;
@@ -10,6 +11,11 @@ type LeadPayload = {
 };
 
 export async function POST(request: Request) {
+  const limited = await rateLimitResponse(request, "leads");
+  if (limited) {
+    return limited;
+  }
+
   const body = (await request.json()) as LeadPayload;
   const lead = {
     event: body.event ?? "lead",

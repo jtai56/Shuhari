@@ -1,5 +1,33 @@
 @import "tailwindcss";
 
+@media print {
+  /* Hide chrome that doesn't belong in print */
+  .no-print {
+    display: none !important;
+  }
+
+  /* When printing only the color card (body has this class) */
+  body.print-card-only .hide-for-card-print {
+    display: none !important;
+  }
+
+  body.print-card-only #personal-color-card {
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* General print polish */
+  body {
+    background: #fff !important;
+    background-image: none !important;
+  }
+
+  section {
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+}
+
 :root {
   --background: #ece3d8;
   --foreground: #2f261f;

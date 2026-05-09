@@ -1,4 +1,5 @@
 import { buildFallbackAnalysis, type AnalysisResult, type UploadedProfile } from "@/lib/color-analysis";
+import { rateLimitResponse } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -195,6 +196,11 @@ async function requestOpenAIAnalysis(
 }
 
 export async function POST(request: Request) {
+  const limited = await rateLimitResponse(request, "analyze");
+  if (limited) {
+    return limited;
+  }
+
   try {
     const body = (await request.json()) as AnalyzePayload;
     const photos = body.photos?.filter(Boolean) ?? [];

@@ -1,3 +1,5 @@
+import { rateLimitResponse } from "@/lib/rate-limit";
+
 type CheckoutPayload = {
   email?: string;
   name?: string;
@@ -5,8 +7,8 @@ type CheckoutPayload = {
 };
 
 const STRIPE_MANAGED_PAYMENTS_VERSION = "2026-02-25.preview";
-const DEFAULT_PRODUCT_NAME = "Hamlet (e-book)";
-const DEFAULT_PRODUCT_DESCRIPTION = "A Shakespearean tragedy";
+const DEFAULT_PRODUCT_NAME = "Shuhari Personal Color Guide";
+const DEFAULT_PRODUCT_DESCRIPTION = "Full personal color analysis and AI clothing try-on guide.";
 const DEFAULT_TAX_CODE = "txcd_10103100";
 
 function getBaseUrl(request: Request) {
@@ -16,11 +18,20 @@ function getBaseUrl(request: Request) {
     return configuredUrl.replace(/\/$/, "");
   }
 
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_SITE_URL is required in production.");
+  }
+
   const url = new URL(request.url);
   return `${url.protocol}//${url.host}`;
 }
 
 export async function POST(request: Request) {
+  const limited = await rateLimitResponse(request, "checkout");
+  if (limited) {
+    return limited;
+  }
+
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
   if (!stripeSecretKey) {
@@ -34,7 +45,15 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as CheckoutPayload;
-  const baseUrl = getBaseUrl(request);
+  let baseUrl: string;
+  try {
+    baseUrl = getBaseUrl(request);
+  } catch {
+    return Response.json(
+      { error: "Checkout is missing the production site URL configuration." },
+      { status: 503 },
+    );
+  }
   const params = new URLSearchParams();
 
   params.set("mode", "payment");
@@ -56,7 +75,7 @@ export async function POST(request: Request) {
     params.set("line_items[0][quantity]", "1");
   } else {
     params.set("line_items[0][price_data][currency]", "usd");
-    params.set("line_items[0][price_data][unit_amount]", "1000");
+    params.set("line_items[0][price_data][unit_amount]", "500");
     params.set("line_items[0][price_data][product_data][name]", DEFAULT_PRODUCT_NAME);
     params.set("line_items[0][price_data][product_data][description]", DEFAULT_PRODUCT_DESCRIPTION);
     params.set("line_items[0][price_data][product_data][tax_code]", DEFAULT_TAX_CODE);
@@ -75,12 +94,12 @@ export async function POST(request: Request) {
 
   if (!stripeResponse.ok) {
     const errorText = await stripeResponse.text();
+    console.error("Stripe checkout error", errorText);
 
     return Response.json(
       {
         error:
           "Stripe rejected the checkout request. Check STRIPE_SECRET_KEY and STRIPE_PRICE_ID.",
-        detail: errorText,
       },
       { status: 500 },
     );
