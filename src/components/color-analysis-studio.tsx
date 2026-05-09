@@ -27,7 +27,7 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
   return [h, s, l];
 }
 
-// ─── Interactive Try-On ───────────────────────────────────────────────────────
+// ─── Interactive Outfit Color Preview ─────────────────────────────────────────
 
 type TryOnEntry =
   | { status: "pending" }
@@ -84,7 +84,7 @@ function InteractiveTryOn({
     img.src = photo;
   }, [photo]);
 
-  // Fire all try-on requests concurrently as soon as the paywall is cleared
+  // Fire all outfit preview requests concurrently as soon as the paywall is cleared
   useEffect(() => {
     if (!isUnlocked || !framedPhoto || hasTriggered.current) return;
     hasTriggered.current = true;
@@ -153,7 +153,7 @@ function InteractiveTryOn({
                       })
                     }
                     className="h-full w-full cursor-zoom-in"
-                    aria-label={`Expand try-on image for ${color.name}`}
+                    aria-label={`Expand outfit color preview for ${color.name}`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -206,7 +206,7 @@ function InteractiveTryOn({
           className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink)]/75 p-5 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
-          aria-label={`${expandedTryOn.colorName} try-on preview`}
+          aria-label={`${expandedTryOn.colorName} outfit color preview`}
           onClick={() => setExpandedTryOn(null)}
         >
           <div
@@ -216,7 +216,7 @@ function InteractiveTryOn({
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
-                  Try-on
+                  Color preview
                 </p>
                 <h3 className="mt-1 font-serif-kor text-2xl text-[var(--ink)]">
                   {expandedTryOn.colorName}
@@ -225,7 +225,7 @@ function InteractiveTryOn({
               <div className="flex flex-wrap gap-2">
                 <a
                   href={expandedTryOn.dataUrl}
-                  download={`${expandedTryOn.colorName.toLowerCase().replaceAll(" ", "-")}-try-on.png`}
+                  download={`${expandedTryOn.colorName.toLowerCase().replaceAll(" ", "-")}-color-preview.png`}
                   className="rounded-full bg-[var(--ink)] px-4 py-2 text-xs uppercase tracking-[0.16em] text-[var(--paper)] transition hover:bg-[#57473c]"
                 >
                   Download
@@ -243,7 +243,7 @@ function InteractiveTryOn({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={expandedTryOn.dataUrl}
-                alt={`Expanded try-on for ${expandedTryOn.colorName}`}
+                alt={`Expanded outfit color preview for ${expandedTryOn.colorName}`}
                 className="mx-auto max-h-[72vh] w-full object-contain"
               />
             </div>
@@ -905,7 +905,7 @@ function LockedPreview({
       </p>
       <h2 className="mx-auto mt-3 max-w-2xl font-serif-kor text-3xl leading-tight text-[var(--ink)]">
         Unlock the full guide for the detailed report, beauty direction, and
-        AI clothing try-on.
+        outfit color previews.
       </h2>
       <div className="mt-5 flex flex-wrap justify-center gap-3">
         <button
@@ -1353,8 +1353,8 @@ export function ColorAnalysisStudio() {
           </SectionCard>
 
           <SectionCard
-            eyebrow="04 try it on"
-            title="See your clothes in every best color."
+            eyebrow="04 color preview"
+            title="Preview wardrobe colors from your palette."
             className="hide-for-card-print"
             isLocked={!isUnlocked}
           >
@@ -1366,7 +1366,7 @@ export function ColorAnalysisStudio() {
               />
             ) : (
               <p className="text-sm text-[var(--muted)]">
-                Upload a portrait to use the clothing try-on.
+                Add a reference image to preview outfit colors.
               </p>
             )}
           </SectionCard>
@@ -1509,7 +1509,7 @@ export function ColorAnalysisStudio() {
               Your personal color guide, made instant.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-9 text-[var(--muted)]">
-              Upload a few daylight photos, get a free palette preview, then
+              Upload daylight reference images, get a free palette preview, then
               unlock the full report for $5.
             </p>
           </div>

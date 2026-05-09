@@ -8,7 +8,7 @@ type CheckoutPayload = {
 
 const STRIPE_MANAGED_PAYMENTS_VERSION = "2026-02-25.preview";
 const DEFAULT_PRODUCT_NAME = "Shuhari Personal Color Guide";
-const DEFAULT_PRODUCT_DESCRIPTION = "Full personal color analysis and AI clothing try-on guide.";
+const DEFAULT_PRODUCT_DESCRIPTION = "Full personal color guide with outfit color previews.";
 const DEFAULT_TAX_CODE = "txcd_10103100";
 
 function getBaseUrl(request: Request) {

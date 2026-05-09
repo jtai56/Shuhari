@@ -108,7 +108,7 @@ export async function POST(request: Request) {
 
   if (!(await verifyPaidSession(request))) {
     return Response.json(
-      { error: "Try-on generation requires a verified purchase." },
+      { error: "Outfit color preview generation requires a verified purchase." },
       { status: 403 },
     );
   }
