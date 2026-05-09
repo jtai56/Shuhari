@@ -1,6 +1,315 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// ─── Color math (shared by InteractiveTryOn) ──────────────────────────────────
+
+function hexToRgb(hex: string): [number, number, number] {
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+  else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+  else h = ((rn - gn) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (t: number) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return [
+    Math.round(hue2rgb(h + 1 / 3) * 255),
+    Math.round(hue2rgb(h) * 255),
+    Math.round(hue2rgb(h - 1 / 3) * 255),
+  ];
+}
+
+/**
+ * Photoshop Hue/Saturation equivalent with a binary clothing matte.
+ *
+ * For each pixel:
+ *   1. Sample mask brightness (0 = protected, 1 = fully editable, in-between = soft edge)
+ *   2. Skip achromatic pixels (origS < 0.08) — preserves white logos, black graphics, grey stitching
+ *   3. Replace H + S with target; keep original L — shadows stay dark, highlights stay bright
+ *   4. Lerp by mask brightness — anti-aliased edges blend smoothly
+ */
+function applyClothingMask(
+  photoData: ImageData,
+  maskData: ImageData,
+  targetHex: string,
+): ImageData {
+  const result = new ImageData(
+    new Uint8ClampedArray(photoData.data),
+    photoData.width,
+    photoData.height,
+  );
+
+  const [tr, tg, tb] = hexToRgb(targetHex);
+  const [th, ts] = rgbToHsl(tr, tg, tb);
+
+  const maskScaleX = maskData.width / photoData.width;
+  const maskScaleY = maskData.height / photoData.height;
+
+  for (let py = 0; py < photoData.height; py++) {
+    for (let px = 0; px < photoData.width; px++) {
+      const pIdx = (py * photoData.width + px) * 4;
+
+      const mx = Math.min(maskData.width - 1, Math.round(px * maskScaleX));
+      const my = Math.min(maskData.height - 1, Math.round(py * maskScaleY));
+      const mIdx = (my * maskData.width + mx) * 4;
+
+      const maskAlpha =
+        (maskData.data[mIdx] + maskData.data[mIdx + 1] + maskData.data[mIdx + 2]) / 765;
+
+      if (maskAlpha < 0.04) continue;
+
+      const pr = photoData.data[pIdx];
+      const pg = photoData.data[pIdx + 1];
+      const pb = photoData.data[pIdx + 2];
+      const [, origS, origL] = rgbToHsl(pr, pg, pb);
+
+      // Achromatic guard: white/black/grey elements (graphics, logos, stitching) stay unchanged
+      if (origS < 0.08) continue;
+
+      const [nr, ng, nb] = hslToRgb(th, ts, origL);
+      const a = maskAlpha;
+      result.data[pIdx] = Math.round(pr * (1 - a) + nr * a);
+      result.data[pIdx + 1] = Math.round(pg * (1 - a) + ng * a);
+      result.data[pIdx + 2] = Math.round(pb * (1 - a) + nb * a);
+    }
+  }
+
+  return result;
+}
+
+// ─── Interactive Try-On ───────────────────────────────────────────────────────
+
+function loadImageData(src: string): Promise<ImageData> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const oc = document.createElement("canvas");
+      oc.width = img.naturalWidth;
+      oc.height = img.naturalHeight;
+      const ctx = oc.getContext("2d");
+      if (!ctx) return reject(new Error("No 2d context"));
+      ctx.drawImage(img, 0, 0);
+      resolve(ctx.getImageData(0, 0, img.naturalWidth, img.naturalHeight));
+    };
+    img.onerror = () => reject(new Error(`Failed to load image: ${src.slice(0, 40)}`));
+    img.src = src;
+  });
+}
+
+type TryOnStatus = "idle" | "generating-mask" | "ready" | "error";
+
+function InteractiveTryOn({
+  photo,
+  palette,
+}: {
+  photo: string;
+  palette: ReadonlyArray<{ name: string; hex: string; use: string }>;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Layer 0: original photo — never modified after load
+  const photoDataRef = useRef<ImageData | null>(null);
+  // Layer 1: B&W clothing matte from the AI — white = editable, black = protected
+  const maskDataRef = useRef<ImageData | null>(null);
+  const appliedColorRef = useRef<string | null>(null);
+
+  const [status, setStatus] = useState<TryOnStatus>("idle");
+  const [activeColor, setActiveColor] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Draw photo onto canvas and capture its ImageData
+  useEffect(() => {
+    loadImageData(photo)
+      .then((photoData) => {
+        photoDataRef.current = photoData;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = photoData.width;
+        canvas.height = photoData.height;
+        const ctx = canvas.getContext("2d");
+        ctx?.putImageData(photoData, 0, 0);
+        setStatus("idle");
+      })
+      .catch(() => {
+        setStatus("error");
+        setErrorMsg("Could not load your photo.");
+      });
+  }, [photo]);
+
+  const generateMask = useCallback(async () => {
+    if (!photoDataRef.current) return;
+    setStatus("generating-mask");
+    setErrorMsg(null);
+    setActiveColor(null);
+    appliedColorRef.current = null;
+
+    // Reset canvas to original photo while mask generates
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (ctx && photoDataRef.current) ctx.putImageData(photoDataRef.current, 0, 0);
+
+    try {
+      const res = await fetch("/api/mask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photo }),
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Mask generation failed.");
+      }
+
+      const { mask } = (await res.json()) as { mask: string };
+      maskDataRef.current = await loadImageData(mask);
+      setStatus("ready");
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Could not generate the clothing mask.");
+    }
+  }, [photo]);
+
+  const applyColor = useCallback((hex: string | null) => {
+    const canvas = canvasRef.current;
+    const photo = photoDataRef.current;
+    const mask = maskDataRef.current;
+    if (!canvas || !photo) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    appliedColorRef.current = hex;
+    setActiveColor(hex);
+
+    if (!hex || !mask) {
+      ctx.putImageData(photo, 0, 0);
+      return;
+    }
+
+    const recolored = applyClothingMask(photo, mask, hex);
+    ctx.putImageData(recolored, 0, 0);
+  }, []);
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
+      {/* Canvas — base photo composited with recolored shirt layer */}
+      <div className="relative overflow-hidden rounded-[1.75rem] border border-[var(--line)] bg-[var(--panel)]">
+        <canvas ref={canvasRef} className="w-full" />
+
+        {/* Overlay states */}
+        {status === "generating-mask" ? (
+          <div className="absolute inset-0 grid place-items-center bg-[var(--paper)]/80 backdrop-blur-sm">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center gap-1.5">
+                <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--ink)] [animation-delay:0ms]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--ink)] [animation-delay:120ms]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--ink)] [animation-delay:240ms]" />
+              </div>
+              <p className="mt-3 text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
+                Isolating clothing layer…
+              </p>
+              <p className="mt-1 text-[0.65rem] text-[var(--muted)]">~30 seconds</p>
+            </div>
+          </div>
+        ) : null}
+
+        {status === "idle" ? (
+          <div className="absolute inset-0 grid place-items-center bg-[var(--paper)]/60 backdrop-blur-[2px]">
+            <button
+              type="button"
+              onClick={() => void generateMask()}
+              className="rounded-full bg-[var(--ink)] px-7 py-3 text-sm uppercase tracking-[0.18em] text-[var(--paper)] shadow-lg transition hover:bg-[#57473c]"
+            >
+              Isolate clothing layer
+            </button>
+          </div>
+        ) : null}
+
+        {status === "ready" && !activeColor ? (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/60 bg-white/85 px-5 py-2 text-xs text-[var(--muted)] backdrop-blur-sm">
+            Clothing layer ready — pick a color →
+          </div>
+        ) : null}
+      </div>
+
+      {/* Palette column */}
+      <div className="flex flex-col justify-center gap-3 lg:w-20">
+        {status === "ready" ? (
+          <>
+            <p className="text-[0.6rem] uppercase tracking-[0.24em] text-[var(--muted)] lg:text-center">
+              Try on
+            </p>
+            <div className="flex flex-wrap gap-3 lg:flex-col lg:flex-nowrap">
+              {palette.map((color) => (
+                <button
+                  key={color.hex}
+                  type="button"
+                  onClick={() => applyColor(color.hex)}
+                  title={`${color.name} — ${color.use}`}
+                  className={`h-12 w-12 shrink-0 rounded-full border-2 transition-transform hover:scale-110 active:scale-95 ${
+                    activeColor === color.hex
+                      ? "scale-110 border-[var(--ink)] shadow-lg"
+                      : "border-white/70 shadow-sm"
+                  }`}
+                  style={{ backgroundColor: color.hex }}
+                />
+              ))}
+              {activeColor ? (
+                <button
+                  type="button"
+                  onClick={() => applyColor(null)}
+                  title="Reset to original"
+                  className="h-12 w-12 shrink-0 rounded-full border-2 border-dashed border-[var(--line)] bg-white/60 text-[0.55rem] uppercase tracking-wide text-[var(--muted)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
+                >
+                  Reset
+                </button>
+              ) : null}
+            </div>
+            {activeColor ? (
+              <p className="text-[0.6rem] leading-4 text-[var(--muted)] lg:text-center">
+                {palette.find((c) => c.hex === activeColor)?.name}
+              </p>
+            ) : null}
+          </>
+        ) : status === "error" ? (
+          <div className="space-y-3 text-center">
+            <p className="text-xs leading-5 text-[#8a4f45]">{errorMsg}</p>
+            <button
+              type="button"
+              onClick={() => void generateMask()}
+              className="rounded-full border border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)] transition hover:text-[var(--ink)]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 import type { AnalysisResult, UploadedProfile } from "@/lib/color-analysis";
 import { getSeasonPreset, seasonPresets } from "@/lib/season-presets";
@@ -27,6 +336,7 @@ const initialProfile: UploadedProfile = {
 };
 
 const landingSwatches = ["#D3BEA3", "#B27D72", "#7B8575", "#8B796B", "#3D3027"];
+const isDevelopment = process.env.NODE_ENV !== "production";
 
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
@@ -114,9 +424,11 @@ function BottleLoader() {
 
 function LockedPreview({
   onUnlock,
+  onDevUnlock,
   loading,
 }: {
   onUnlock: () => void;
+  onDevUnlock: () => void;
   loading: boolean;
 }) {
   return (
@@ -126,15 +438,26 @@ function LockedPreview({
       </p>
       <h2 className="mx-auto mt-3 max-w-2xl font-serif-kor text-3xl leading-tight text-[var(--ink)]">
         Unlock the full guide for the detailed report, beauty direction, and
-        shopping list.
+        AI clothing try-on.
       </h2>
-      <button
-        type="button"
-        onClick={onUnlock}
-        className="mt-5 rounded-full bg-[var(--ink)] px-7 py-3 text-sm uppercase tracking-[0.18em] text-[var(--paper)] transition hover:bg-[#57473c]"
-      >
-        {loading ? "Opening checkout..." : "Unlock full guide $5"}
-      </button>
+      <div className="mt-5 flex flex-wrap justify-center gap-3">
+        <button
+          type="button"
+          onClick={onUnlock}
+          className="rounded-full bg-[var(--ink)] px-7 py-3 text-sm uppercase tracking-[0.18em] text-[var(--paper)] transition hover:bg-[#57473c]"
+        >
+          {loading ? "Opening checkout..." : "Unlock full guide $5"}
+        </button>
+        {isDevelopment ? (
+          <button
+            type="button"
+            onClick={onDevUnlock}
+            className="rounded-full border border-[var(--line-strong)] bg-white/75 px-7 py-3 text-sm uppercase tracking-[0.18em] text-[var(--ink)] transition hover:bg-white"
+          >
+            Dev bypass
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -370,6 +693,14 @@ export function ColorAnalysisStudio() {
     }
   }
 
+  function handleDevUnlock() {
+    if (!isDevelopment) return;
+    window.localStorage.setItem(STORAGE_UNLOCKED_KEY, "true");
+    setIsUnlocked(true);
+    setStage("slides");
+    setError(null);
+  }
+
   if (stage === "loading") {
     return <BottleLoader />;
   }
@@ -412,7 +743,11 @@ export function ColorAnalysisStudio() {
         </div>
 
         {!isUnlocked ? (
-          <LockedPreview onUnlock={() => void handleCheckout()} loading={isCheckingOut} />
+          <LockedPreview
+            onUnlock={() => void handleCheckout()}
+            onDevUnlock={handleDevUnlock}
+            loading={isCheckingOut}
+          />
         ) : null}
 
         <div className={isUnlocked ? "grid snap-y gap-12" : "grid snap-y gap-12 blur-sm"}>
@@ -476,7 +811,20 @@ export function ColorAnalysisStudio() {
             </div>
           </SectionCard>
 
-          <SectionCard eyebrow="03 face effect" title="Why these shades work.">
+          <SectionCard
+            eyebrow="03 try it on"
+            title="See your clothes in every best color."
+          >
+            {heroPhoto ? (
+              <InteractiveTryOn photo={heroPhoto} palette={topPalette} />
+            ) : (
+              <p className="text-sm text-[var(--muted)]">
+                Upload a portrait to use the clothing try-on.
+              </p>
+            )}
+          </SectionCard>
+
+          <SectionCard eyebrow="04 face effect" title="Why these shades work.">
             <div className="grid gap-4 md:grid-cols-2">
               {result.whyItWorks.slice(0, 4).map((item) => (
                 <p
@@ -489,7 +837,7 @@ export function ColorAnalysisStudio() {
             </div>
           </SectionCard>
 
-          <SectionCard eyebrow="04 beauty" title="Makeup and hair direction.">
+          <SectionCard eyebrow="05 beauty" title="Makeup and hair direction.">
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-[1.75rem] border border-[var(--line)] bg-white/65 p-6">
                 <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted)]">
@@ -536,7 +884,7 @@ export function ColorAnalysisStudio() {
             </div>
           </SectionCard>
 
-          <SectionCard eyebrow="05 final" title="The one screen that matters.">
+          <SectionCard eyebrow="06 final" title="The one screen that matters.">
             <FinalSummary
               result={result}
               preset={activePreset}
