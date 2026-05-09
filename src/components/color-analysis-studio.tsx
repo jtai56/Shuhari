@@ -49,6 +49,10 @@ function InteractiveTryOn({
   );
   const hasTriggered = useRef(false);
   const [framedPhoto, setFramedPhoto] = useState<string | null>(null);
+  const [expandedTryOn, setExpandedTryOn] = useState<{
+    colorName: string;
+    dataUrl: string;
+  } | null>(null);
 
   // Frame the photo into a square canvas without distortion. This keeps the
   // whole uploaded image visible for gpt-image-2 while matching its square output.
@@ -140,12 +144,24 @@ function InteractiveTryOn({
             <div key={color.hex} className="space-y-2">
               <div className="aspect-square overflow-hidden rounded-[1.75rem] border border-[var(--line)] bg-[var(--panel)]">
                 {entry.status === "done" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={entry.dataUrl}
-                    alt={`You in ${color.name}`}
-                    className="h-full w-full object-contain"
-                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedTryOn({
+                        colorName: color.name,
+                        dataUrl: entry.dataUrl,
+                      })
+                    }
+                    className="h-full w-full cursor-zoom-in"
+                    aria-label={`Expand try-on image for ${color.name}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={entry.dataUrl}
+                      alt={`You in ${color.name}`}
+                      className="h-full w-full object-contain"
+                    />
+                  </button>
                 ) : entry.status === "loading" ? (
                   <div
                     className="flex h-full w-full flex-col items-center justify-center gap-3"
@@ -184,6 +200,56 @@ function InteractiveTryOn({
           );
         })}
       </div>
+
+      {expandedTryOn ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink)]/75 p-5 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${expandedTryOn.colorName} try-on preview`}
+          onClick={() => setExpandedTryOn(null)}
+        >
+          <div
+            className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/20 bg-[var(--paper)] shadow-[0_30px_120px_rgba(0,0,0,0.35)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
+                  Try-on
+                </p>
+                <h3 className="mt-1 font-serif-kor text-2xl text-[var(--ink)]">
+                  {expandedTryOn.colorName}
+                </h3>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={expandedTryOn.dataUrl}
+                  download={`${expandedTryOn.colorName.toLowerCase().replaceAll(" ", "-")}-try-on.png`}
+                  className="rounded-full bg-[var(--ink)] px-4 py-2 text-xs uppercase tracking-[0.16em] text-[var(--paper)] transition hover:bg-[#57473c]"
+                >
+                  Download
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setExpandedTryOn(null)}
+                  className="rounded-full border border-[var(--line-strong)] px-4 py-2 text-xs uppercase tracking-[0.16em] text-[var(--muted)] transition hover:text-[var(--ink)]"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[76vh] bg-white/45 p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={expandedTryOn.dataUrl}
+                alt={`Expanded try-on for ${expandedTryOn.colorName}`}
+                className="mx-auto max-h-[72vh] w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -362,6 +428,17 @@ async function exportElementAsJpg(elementId: string, fileName: string) {
 
   try {
     await document.fonts.ready;
+    await Promise.all(
+      Array.from(node.querySelectorAll<HTMLImageElement>("img")).map(
+        (image) =>
+          image.complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                image.addEventListener("load", () => resolve(), { once: true });
+                image.addEventListener("error", () => resolve(), { once: true });
+              }),
+      ),
+    );
 
     const ignored = Array.from(
       node.querySelectorAll<HTMLElement>(".export-ignore"),
@@ -575,13 +652,13 @@ type UploadedPhoto = {
   id: string;
   name: string;
   preview: string;
-  dataUrl: string;
+  file: File;
+  dataUrl?: string;
 };
 
 type AppStage = "landing" | "loading" | "slides" | "summary";
 
 const STORAGE_RESULT_KEY = "shuhari:lastResult";
-const STORAGE_EMAIL_KEY = "shuhari:email";
 const STORAGE_UNLOCKED_KEY = "shuhari:unlocked";
 
 const initialProfile: UploadedProfile = {
@@ -651,11 +728,13 @@ function SectionCard({
   title,
   children,
   className,
+  isLocked = false,
 }: {
   eyebrow: string;
   title: string;
   children: React.ReactNode;
   className?: string;
+  isLocked?: boolean;
 }) {
   return (
     <section className={`snap-center rounded-[2.25rem] border border-[var(--line)] bg-white/70 p-7 shadow-[0_30px_90px_rgba(72,53,41,0.08)] sm:p-10${className ? ` ${className}` : ""}`}>
@@ -665,7 +744,16 @@ function SectionCard({
       <h2 className="mt-4 max-w-3xl font-serif-kor text-4xl leading-tight text-[var(--ink)] sm:text-6xl">
         {title}
       </h2>
-      <div className="mt-8">{children}</div>
+      <div
+        className={
+          isLocked
+            ? "mt-8 pointer-events-none select-none opacity-45 blur-[6px]"
+            : "mt-8"
+        }
+        aria-hidden={isLocked}
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -797,10 +885,12 @@ function BottleLoader() {
 }
 
 function LockedPreview({
+  season,
   onUnlock,
   onDevUnlock,
   loading,
 }: {
+  season: string;
   onUnlock: () => void;
   onDevUnlock: () => void;
   loading: boolean;
@@ -809,6 +899,9 @@ function LockedPreview({
     <div className="sticky top-6 z-10 mb-8 rounded-[2rem] border border-[var(--line-strong)] bg-[var(--paper)]/95 p-6 text-center shadow-[0_24px_80px_rgba(72,53,41,0.16)] backdrop-blur">
       <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">
         Free preview ready
+      </p>
+      <p className="mt-3 font-serif-kor text-5xl leading-none text-[var(--ink)]">
+        {season}
       </p>
       <h2 className="mx-auto mt-3 max-w-2xl font-serif-kor text-3xl leading-tight text-[var(--ink)]">
         Unlock the full guide for the detailed report, beauty direction, and
@@ -838,7 +931,6 @@ function LockedPreview({
 
 export function ColorAnalysisStudio() {
   const [profile, setProfile] = useState<UploadedProfile>(initialProfile);
-  const [email, setEmail] = useState("");
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [stage, setStage] = useState<AppStage>("landing");
@@ -846,7 +938,7 @@ export function ColorAnalysisStudio() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
 
-  const heroPhoto = photos[0]?.preview;
+  const heroPhoto = photos[0]?.dataUrl ?? photos[0]?.preview;
   const canSubmit = photos.length > 0;
   const activePreset = useMemo(
     () => (result ? getSeasonPreset(result.season) : null),
@@ -885,11 +977,6 @@ export function ColorAnalysisStudio() {
       }
     }
 
-    const savedEmail = window.localStorage.getItem(STORAGE_EMAIL_KEY);
-    if (savedEmail) {
-      setEmail(savedEmail);
-    }
-
     if (checkoutStatus === "success") {
       void (async () => {
         try {
@@ -919,7 +1006,7 @@ export function ColorAnalysisStudio() {
           setIsUnlocked(false);
           if (savedParsed) {
             setResult(savedParsed);
-            setStage("summary");
+            setStage("slides");
           } else {
             setStage("landing");
           }
@@ -935,7 +1022,7 @@ export function ColorAnalysisStudio() {
       queueMicrotask(() => {
         if (savedParsed) {
           setResult(savedParsed);
-          setStage("summary");
+          setStage("slides");
         } else {
           setStage("landing");
         }
@@ -945,15 +1032,31 @@ export function ColorAnalysisStudio() {
       return;
     }
 
-    if (isDevelopment || window.localStorage.getItem(STORAGE_UNLOCKED_KEY) === "true") {
-      setIsUnlocked(true);
-    }
+    const hasSavedUnlock =
+      isDevelopment || window.localStorage.getItem(STORAGE_UNLOCKED_KEY) === "true";
 
-    if (savedParsed) {
-      setResult(savedParsed);
-      setStage("summary");
+    if (hasSavedUnlock || savedParsed) {
+      queueMicrotask(() => {
+        if (hasSavedUnlock) {
+          setIsUnlocked(true);
+        }
+        if (savedParsed) {
+          setResult(savedParsed);
+          setStage("slides");
+        }
+      });
     }
   }, []);
+
+  useEffect(() => {
+    return () => {
+      photos.forEach((photo) => {
+        if (photo.preview.startsWith("blob:")) {
+          URL.revokeObjectURL(photo.preview);
+        }
+      });
+    };
+  }, [photos]);
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []).slice(0, 3);
@@ -962,18 +1065,12 @@ export function ColorAnalysisStudio() {
       return;
     }
 
-    const nextPhotos = await Promise.all(
-      files.map(async (file, index) => {
-        const dataUrl = await fileToDataUrl(file);
-
-        return {
-          id: `${file.name}-${index}-${Date.now()}`,
-          name: file.name,
-          preview: dataUrl,
-          dataUrl,
-        };
-      }),
-    );
+    const nextPhotos = files.map((file, index) => ({
+      id: `${file.name}-${index}-${Date.now()}`,
+      name: file.name,
+      preview: URL.createObjectURL(file),
+      file,
+    }));
 
     setPhotos(nextPhotos);
     setError(null);
@@ -985,23 +1082,27 @@ export function ColorAnalysisStudio() {
       return;
     }
 
-    if (!email.includes("@")) {
-      setError("Add your email so we can save your guide.");
-      return;
-    }
-
     setStage("loading");
     setError(null);
-    window.localStorage.setItem(STORAGE_EMAIL_KEY, email);
 
     try {
+      const encodedPhotos = await Promise.all(
+        photos.map(async (photo) => photo.dataUrl ?? (await fileToDataUrl(photo.file))),
+      );
+      setPhotos((current) =>
+        current.map((photo, index) => ({
+          ...photo,
+          dataUrl: encodedPhotos[index] ?? photo.dataUrl,
+        })),
+      );
+
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          photos: photos.map((photo) => photo.dataUrl),
+          photos: encodedPhotos,
           profile,
         }),
       });
@@ -1020,13 +1121,12 @@ export function ColorAnalysisStudio() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event: "guide_generated",
-          email,
           name: profile.name,
           season: data.season,
           source: "analysis_form",
         }),
       });
-      setStage(isDevelopment ? "slides" : "summary");
+      setStage("slides");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (requestError) {
       setStage("landing");
@@ -1047,7 +1147,6 @@ export function ColorAnalysisStudio() {
     setIsCheckingOut(true);
     setError(null);
     window.localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(result));
-    window.localStorage.setItem(STORAGE_EMAIL_KEY, email);
 
     try {
       void fetch("/api/leads", {
@@ -1055,7 +1154,6 @@ export function ColorAnalysisStudio() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event: "unlock_clicked",
-          email,
           name: profile.name,
           season: activePreset.season,
           source: "stripe_cta",
@@ -1066,7 +1164,6 @@ export function ColorAnalysisStudio() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
           name: profile.name,
           season: activePreset.season,
         }),
@@ -1138,50 +1235,49 @@ export function ColorAnalysisStudio() {
                 {isCheckingOut ? "Opening checkout..." : "Unlock full guide $5"}
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setStage("summary")}
-              className="rounded-full border border-[var(--line)] bg-white/60 px-5 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--ink)]"
-            >
-              Final palette
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                void exportElementAsJpg(
-                  "color-analysis-export",
-                  `${activePreset.season.toLowerCase().replaceAll(" ", "-")}-color-analysis.jpg`,
-                )
-              }
-              className="export-ignore no-print rounded-full border border-[var(--line)] bg-white/60 px-5 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--ink)]"
-            >
-              Export JPG ↓
-            </button>
+            {isUnlocked ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setStage("summary")}
+                  className="rounded-full border border-[var(--line)] bg-white/60 px-5 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--ink)]"
+                >
+                  Final palette
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void exportElementAsJpg(
+                      "color-analysis-export",
+                      `${activePreset.season.toLowerCase().replaceAll(" ", "-")}-color-analysis.jpg`,
+                    )
+                  }
+                  className="export-ignore no-print rounded-full border border-[var(--line)] bg-white/60 px-5 py-2 text-sm text-[var(--muted)] transition hover:text-[var(--ink)]"
+                >
+                  Export JPG ↓
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
 
-        {!isUnlocked ? (
-          <div className="no-print">
-            <LockedPreview
-              onUnlock={() => void handleCheckout()}
-              onDevUnlock={handleDevUnlock}
-              loading={isCheckingOut}
-            />
-          </div>
-        ) : null}
-
-        {isUnlocked ? (
-          <div
-            id="color-analysis-export"
-            className="grid snap-y gap-12"
+        <div
+          id="color-analysis-export"
+          className="grid snap-y gap-12"
+        >
+          <SectionCard
+            eyebrow="01 result"
+            title={result.archetype}
+            className="hide-for-card-print"
           >
-          <SectionCard eyebrow="01 result" title={result.archetype} className="hide-for-card-print">
             <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr]">
               <div className="overflow-hidden rounded-[2rem] border border-[var(--line)] bg-[var(--panel)]">
                 {heroPhoto ? (
-                  <div
-                    className="h-[24rem] bg-cover bg-center"
-                    style={{ backgroundImage: `url(${heroPhoto})` }}
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={heroPhoto}
+                    alt={profile.name ? `${profile.name} portrait` : "Uploaded portrait"}
+                    className="h-[24rem] w-full object-cover object-center"
                   />
                 ) : null}
               </div>
@@ -1208,9 +1304,21 @@ export function ColorAnalysisStudio() {
             </div>
           </SectionCard>
 
+          {!isUnlocked ? (
+            <div className="no-print">
+              <LockedPreview
+                season={activePreset.season}
+                onUnlock={() => void handleCheckout()}
+                onDevUnlock={handleDevUnlock}
+                loading={isCheckingOut}
+              />
+            </div>
+          ) : null}
+
           <SectionCard
             eyebrow="02 color card"
             title="Your personal color map."
+            isLocked={!isUnlocked}
           >
             <PersonalColorCard result={result} palette={topPalette} />
           </SectionCard>
@@ -1219,6 +1327,7 @@ export function ColorAnalysisStudio() {
             eyebrow="03 palette"
             title={`${activePreset.season} has a clear color logic.`}
             className="hide-for-card-print"
+            isLocked={!isUnlocked}
           >
             <div className="grid gap-5 sm:grid-cols-5">
               {topPalette.map((color) => (
@@ -1247,6 +1356,7 @@ export function ColorAnalysisStudio() {
             eyebrow="04 try it on"
             title="See your clothes in every best color."
             className="hide-for-card-print"
+            isLocked={!isUnlocked}
           >
             {heroPhoto ? (
               <InteractiveTryOn
@@ -1261,11 +1371,21 @@ export function ColorAnalysisStudio() {
             )}
           </SectionCard>
 
-          <SectionCard eyebrow="05 face effect" title="Why these shades work." className="hide-for-card-print">
+          <SectionCard
+            eyebrow="05 face effect"
+            title="Why these shades work."
+            className="hide-for-card-print"
+            isLocked={!isUnlocked}
+          >
             <FaceEffectStory result={result} preset={activePreset} />
           </SectionCard>
 
-          <SectionCard eyebrow="06 beauty" title="Makeup and hair direction." className="hide-for-card-print">
+          <SectionCard
+            eyebrow="06 beauty"
+            title="Makeup and hair direction."
+            className="hide-for-card-print"
+            isLocked={!isUnlocked}
+          >
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-[1.75rem] border border-[var(--line)] bg-white/65 p-6">
                 <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted)]">
@@ -1312,7 +1432,12 @@ export function ColorAnalysisStudio() {
             </div>
           </SectionCard>
 
-          <SectionCard eyebrow="07 final" title="The one screen that matters." className="hide-for-card-print">
+          <SectionCard
+            eyebrow="07 final"
+            title="The one screen that matters."
+            className="hide-for-card-print"
+            isLocked={!isUnlocked}
+          >
             <FinalSummary
               result={result}
               preset={activePreset}
@@ -1323,8 +1448,7 @@ export function ColorAnalysisStudio() {
               onShowSummary={() => setStage("summary")}
             />
           </SectionCard>
-          </div>
-        ) : null}
+        </div>
       </main>
     );
   }
@@ -1466,18 +1590,6 @@ export function ColorAnalysisStudio() {
           </div>
 
           <div className="mt-7 space-y-4">
-            <label className="block space-y-2">
-              <span className="text-sm text-[var(--muted)]">Email</span>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
-                placeholder="you@example.com"
-              />
-            </label>
-
             <label className="block space-y-2">
               <span className="text-sm text-[var(--muted)]">Name</span>
               <input
@@ -1621,6 +1733,17 @@ export function ColorAnalysisStudio() {
   );
 }
 
+/** Remove "low/medium/high confidence" phrasing models often echo in prose. */
+function stripAiConfidenceNote(text: string): string {
+  return text
+    .replace(/\bwith\s+(low|medium|high)\s+confidence\b\.?/gi, "")
+    .replace(/\b(low|medium|high)\s+confidence\b[.:]?\s*/gi, "")
+    .replace(/\(\s*(low|medium|high)\s+confidence\s*\)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s.,;:-]+|[\s.,;:-]+$/g, "")
+    .trim();
+}
+
 function FinalSummary({
   result,
   preset,
@@ -1677,7 +1800,7 @@ function FinalSummary({
           {preset.season}
         </h2>
         <p className="mt-4 max-w-2xl text-lg leading-8 text-[var(--paper)]/72">
-          {result.archetype} · {preset.mood}
+          {stripAiConfidenceNote(result.archetype)} · {preset.mood}
         </p>
 
         <div className="mt-9 grid overflow-hidden rounded-[2rem] border border-white/10 sm:grid-cols-5">
@@ -1717,7 +1840,7 @@ function FinalSummary({
               Remember this
             </p>
             <p className="mt-4 text-base leading-8 text-[var(--paper)]/82">
-              {result.whyItWorks[0] ?? result.summary}
+              {stripAiConfidenceNote(result.whyItWorks[0] ?? result.summary)}
             </p>
           </div>
         </div>
