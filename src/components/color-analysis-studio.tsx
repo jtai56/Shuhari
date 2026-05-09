@@ -1559,6 +1559,73 @@ export function ColorAnalysisStudio() {
             />
           </SectionCard>
         </div>
+
+        <section className="no-print mx-auto mt-12 w-full max-w-3xl rounded-[2rem] border border-[var(--line)] bg-white/65 p-6 sm:p-8">
+          <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">
+            Please help me get feedback!!
+          </p>
+          <form
+            className="mt-6 grid gap-4 sm:grid-cols-[1fr_1fr_auto]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSurveySubmit();
+            }}
+          >
+            <label className="block space-y-2">
+              <span className="text-sm text-[var(--muted)]">
+                would you pay for this service?
+              </span>
+              <select
+                value={surveyWouldPay}
+                onChange={(event) => {
+                  setSurveyWouldPay(event.target.value);
+                  setSurveyStatus("idle");
+                }}
+                className="w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
+              >
+                <option value="yes">Yes</option>
+                <option value="maybe">Maybe</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+
+            <label className="block space-y-2">
+              <span className="text-sm text-[var(--muted)]">How much would you pay?</span>
+              <input
+                value={surveyPrice}
+                onChange={(event) => {
+                  setSurveyPrice(event.target.value);
+                  setSurveyStatus("idle");
+                }}
+                className="w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
+                placeholder="Enter an amount"
+                required
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={surveyStatus === "saving" || surveyStatus === "saved"}
+              className="self-end rounded-full bg-[var(--ink)] px-6 py-3 text-sm uppercase tracking-[0.18em] text-[var(--paper)] transition hover:bg-[#57473c] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {surveyStatus === "saving"
+                ? "Saving..."
+                : surveyStatus === "saved"
+                  ? "Saved"
+                  : "Submit"}
+            </button>
+          </form>
+          {surveyStatus === "saved" ? (
+            <p className="mt-4 text-sm text-[var(--muted)]">
+              Thank you. This helps me validate the business.
+            </p>
+          ) : null}
+          {surveyStatus === "error" ? (
+            <p className="mt-4 text-sm text-[#7a5648]">
+              Could not save feedback. Please try again.
+            </p>
+          ) : null}
+        </section>
       </main>
     );
   }
@@ -1840,72 +1907,6 @@ export function ColorAnalysisStudio() {
         </form>
       </section>
 
-      <section className="mx-auto mt-12 w-full max-w-3xl rounded-[2rem] border border-[var(--line)] bg-white/65 p-6 sm:p-8">
-        <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">
-          Please help me get feedback!!
-        </p>
-        <form
-          className="mt-6 grid gap-4 sm:grid-cols-[1fr_1fr_auto]"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void handleSurveySubmit();
-          }}
-        >
-          <label className="block space-y-2">
-            <span className="text-sm text-[var(--muted)]">
-              would you pay for this service?
-            </span>
-            <select
-              value={surveyWouldPay}
-              onChange={(event) => {
-                setSurveyWouldPay(event.target.value);
-                setSurveyStatus("idle");
-              }}
-              className="w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
-            >
-              <option value="yes">Yes</option>
-              <option value="maybe">Maybe</option>
-              <option value="no">No</option>
-            </select>
-          </label>
-
-          <label className="block space-y-2">
-            <span className="text-sm text-[var(--muted)]">How much would you pay?</span>
-            <input
-              value={surveyPrice}
-              onChange={(event) => {
-                setSurveyPrice(event.target.value);
-                setSurveyStatus("idle");
-              }}
-              className="w-full rounded-[1rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm text-[var(--ink)] outline-none transition focus:border-[var(--line-strong)]"
-              placeholder="$5, $10, $20..."
-              required
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={surveyStatus === "saving" || surveyStatus === "saved"}
-            className="self-end rounded-full bg-[var(--ink)] px-6 py-3 text-sm uppercase tracking-[0.18em] text-[var(--paper)] transition hover:bg-[#57473c] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {surveyStatus === "saving"
-              ? "Saving..."
-              : surveyStatus === "saved"
-                ? "Saved"
-                : "Submit"}
-          </button>
-        </form>
-        {surveyStatus === "saved" ? (
-          <p className="mt-4 text-sm text-[var(--muted)]">
-            Thank you. This helps me validate the business.
-          </p>
-        ) : null}
-        {surveyStatus === "error" ? (
-          <p className="mt-4 text-sm text-[#7a5648]">
-            Could not save feedback. Please try again.
-          </p>
-        ) : null}
-      </section>
     </main>
   );
 }
